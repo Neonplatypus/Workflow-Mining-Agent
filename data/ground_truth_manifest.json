@@ -1,0 +1,44 @@
+{
+  "seed": 42,
+  "total_tickets": 3000,
+  "planted_total": 2250,
+  "one_off_total": 750,
+  "workflows": {
+    "WF_ACCESS_PROVISIONING": {
+      "name": "Access Provisioning and Permission Requests",
+      "count": 449,
+      "total_handling_minutes": 10128.499999999989,
+      "expected_hours_total": 168.81
+    },
+    "WF_ENV_RESET": {
+      "name": "Development or Test Environment Resets",
+      "count": 337,
+      "total_handling_minutes": 11953.800000000005,
+      "expected_hours_total": 199.23
+    },
+    "WF_LOG_DISK_CLEANUP": {
+      "name": "Log Cleanup and Disk Space Remediation",
+      "count": 381,
+      "total_handling_minutes": 7617.7000000000035,
+      "expected_hours_total": 126.96
+    },
+    "WF_PASSWORD_RESET": {
+      "name": "Password Resets and Account Unlocks",
+      "count": 523,
+      "total_handling_minutes": 6102.0,
+      "expected_hours_total": 101.7
+    },
+    "WF_DEPLOY_VALIDATION": {
+      "name": "Routine Deployment and Configuration Validation",
+      "count": 294,
+      "total_handling_minutes": 8072.299999999999,
+      "expected_hours_total": 134.54
+    },
+    "WF_CERT_SERVICE_ACCOUNT": {
+      "name": "Service Account and Certificate Renewal Requests",
+      "count": 266,
+      "total_handling_minutes": 10522.900000000003,
+      "expected_hours_total": 175.38
+    }
+  }
+}

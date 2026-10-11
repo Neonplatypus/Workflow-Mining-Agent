@@ -1,0 +1,333 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  ShieldAlert, 
+  CheckCircle, 
+  XCircle, 
+  RotateCcw, 
+  Download, 
+  FileCode, 
+  Layers, 
+  Lock, 
+  Terminal, 
+  FileText,
+  UserCheck,
+  Check,
+  AlertOctagon
+} from 'lucide-react';
+
+export default function AutomationStudioView({ workflowId }) {
+  const [spec, setSpec] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [reviewComments, setReviewComments] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewerName, setReviewerName] = useState('Demo User (DevOps & Security Reviewer)');
+
+  const fetchDraft = async () => {
+    setLoading(true);
+    try {
+      let url = '/api/automations/SPEC-WF-01';
+      if (workflowId) {
+        url = `/api/automations/draft?workflow_id=${encodeURIComponent(workflowId)}`;
+        const draftRes = await fetch(url, { method: 'POST' });
+        const data = await draftRes.json();
+        setSpec(data);
+        return;
+      }
+      const res = await fetch('/api/automations/any');
+      if (res.ok) {
+        const data = await res.json();
+        setSpec(data);
+      }
+    } catch (err) {
+      console.error('Failed to load specification draft:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDraft();
+  }, [workflowId]);
+
+  const handleReviewAction = async (action) => {
+    if (!spec) return;
+    setSubmittingReview(true);
+    try {
+      const res = await fetch(`/api/automations/${spec.draft_id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: action,
+          reviewer_name: reviewerName,
+          comments: reviewComments || `Recorded ${action} decision via Automation Studio review gate.`
+        })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setSpec(updated);
+        setReviewComments('');
+      }
+    } catch (err) {
+      console.error('Failed to submit review:', err);
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
+  const handleExport = (format) => {
+    if (!spec) return;
+    window.open(`/api/exports/automation/${spec.draft_id}?format=${format}`, '_blank');
+  };
+
+  if (loading) {
+    return <div className="card">Drafting automation specification via Google ADK Agent...</div>;
+  }
+
+  if (!spec) {
+    return <div className="card">No automation draft available. Please select a workflow first.</div>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+      {/* MANDATORY SAFETY BOUNDARY BANNER */}
+      <div 
+        style={{ 
+          background: '#fef2f2', 
+          border: '2px solid #ef4444', 
+          borderRadius: '10px', 
+          padding: '16px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '14px',
+          boxShadow: '0 2px 4px rgba(239, 68, 68, 0.1)'
+        }}
+      >
+        <AlertOctagon size={28} color="#dc2626" style={{ flexShrink: 0 }} />
+        <div>
+          <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '0.95rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Mandatory Safety Boundary
+          </div>
+          <div style={{ color: '#b91c1c', fontSize: '0.88rem', marginTop: '2px' }}>
+            Approval is a recorded review decision, <strong>NOT permission to execute</strong> the proposed automation. 
+            The Workflow Mining Agent <strong>never executes generated automations automatically</strong>.
+          </div>
+        </div>
+      </div>
+
+      {/* Header and Export Controls */}
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <span className="badge badge-purple">Google ADK Multi-Step Agent</span>
+              <code style={{ fontSize: '0.85rem' }}>{spec.draft_id}</code>
+              <span className={`badge ${
+                spec.approval_status === 'APPROVED' ? 'badge-green' :
+                spec.approval_status === 'REJECTED' ? 'badge-red' :
+                spec.approval_status === 'REVISION_REQUESTED' ? 'badge-amber' : 'badge-blue'
+              }`}>
+                Status: {spec.approval_status}
+              </span>
+            </div>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 700 }}>{spec.workflow_name}</h2>
+            <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '4px' }}>
+              {spec.business_objective}
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-outline btn-sm" onClick={() => handleExport('markdown')}>
+              <Download size={14} /> Export Markdown
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => handleExport('json')}>
+              <FileCode size={14} /> Export JSON
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Two Column Layout: Specification Details and Human Review Gate */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '22px' }}>
+        {/* Left Column: Ordered Steps, Decision Rules, Rollback */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* Ordered Automation Steps */}
+          <div className="card">
+            <h3 className="card-title">
+              <Layers size={18} color="#2563eb" /> Ordered Automation Steps
+            </h3>
+            <p className="card-desc">Grounded in actual ticket resolution notes and target API contracts.</p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {spec.ordered_steps?.map((step) => (
+                <div 
+                  key={step.step_number}
+                  style={{
+                    padding: '14px',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#2563eb' }}>
+                        Step {step.step_number}
+                      </span>
+                      <strong style={{ fontSize: '0.9rem' }}>{step.step_name}</strong>
+                    </div>
+                    <span className={`badge ${step.is_grounded_in_evidence ? 'badge-green' : 'badge-amber'}`}>
+                      {step.is_grounded_in_evidence ? '✅ Grounded in Evidence' : '💡 Recommendation'}
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize: '0.88rem', color: '#334155', marginBottom: '8px' }}>
+                    {step.action_description}
+                  </p>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#64748b' }}>
+                    <span>Target System: <code>{step.target_system_or_api}</code></span>
+                    {step.evidence_source_note && <span>{step.evidence_source_note}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Rollback Strategy & Idempotency */}
+          <div className="card">
+            <h3 className="card-title">
+              <RotateCcw size={18} color="#dc2626" /> Rollback &amp; Fault Recovery Strategy
+            </h3>
+            <p style={{ fontSize: '0.88rem', color: '#334155', marginBottom: '14px' }}>
+              {spec.rollback_and_recovery_strategy}
+            </p>
+
+            <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.82rem' }}>
+              <strong>Retry &amp; Idempotency Policy:</strong> {spec.retry_strategy_and_idempotency}
+            </div>
+          </div>
+
+          {/* Proposed Workflow Implementation Pseudocode */}
+          <div className="card">
+            <h3 className="card-title">
+              <Terminal size={18} color="#7c3aed" /> Proposed Workflow Definition (Pseudocode)
+            </h3>
+            <pre 
+              style={{ 
+                background: '#0f172a', 
+                color: '#e2e8f0', 
+                padding: '16px', 
+                borderRadius: '8px', 
+                fontSize: '0.82rem', 
+                overflowX: 'auto',
+                lineHeight: 1.45
+              }}
+            >
+              {spec.pseudocode_or_workflow_definition}
+            </pre>
+          </div>
+        </div>
+
+        {/* Right Column: Human Review Gate & Security Parameters */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* Human Review & Approval Action Card */}
+          <div className="card" style={{ border: '2px solid #cbd5e1' }}>
+            <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <UserCheck size={18} color="#2563eb" /> Human Review &amp; Approval Gate
+            </h3>
+            <p className="card-desc">
+              All automated workflows require verified human review before being scheduled into engineering backlogs.
+            </p>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Reviewer Identity</label>
+              <input 
+                type="text"
+                value={reviewerName}
+                onChange={(e) => setReviewerName(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Review Comments &amp; Justification</label>
+              <textarea 
+                rows="3"
+                placeholder="Enter review notes, security verification comments, or change authorization ID..."
+                value={reviewComments}
+                onChange={(e) => setReviewComments(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button 
+                className="btn btn-success" 
+                disabled={submittingReview}
+                onClick={() => handleReviewAction('APPROVED')}
+                style={{ width: '100%' }}
+              >
+                <CheckCircle size={16} /> Approve Proposal (Record Review Decision)
+              </button>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <button 
+                  className="btn btn-danger" 
+                  disabled={submittingReview}
+                  onClick={() => handleReviewAction('REJECTED')}
+                >
+                  <XCircle size={15} /> Reject
+                </button>
+                <button 
+                  className="btn btn-outline" 
+                  disabled={submittingReview}
+                  onClick={() => handleReviewAction('REVISION_REQUESTED')}
+                >
+                  <RotateCcw size={15} /> Request Revision
+                </button>
+              </div>
+            </div>
+
+            {/* Audit Log Record */}
+            {spec.reviewed_at && (
+              <div style={{ marginTop: '16px', padding: '10px', background: '#f8fafc', borderRadius: '6px', fontSize: '0.78rem', color: '#64748b' }}>
+                <div><strong>Recorded Decision:</strong> {spec.approval_status}</div>
+                <div><strong>Reviewer:</strong> {spec.reviewer_name}</div>
+                <div><strong>Timestamp:</strong> {new Date(spec.reviewed_at).toLocaleString()}</div>
+                {spec.reviewer_comments && <div><strong>Comments:</strong> {spec.reviewer_comments}</div>}
+              </div>
+            )}
+          </div>
+
+          {/* Security & Access Controls */}
+          <div className="card">
+            <h3 className="card-title">
+              <Lock size={18} color="#059669" /> Security &amp; IAM Permissions
+            </h3>
+            <ul style={{ fontSize: '0.84rem', color: '#334155', paddingLeft: '18px', marginTop: '8px' }}>
+              {spec.security_and_permission_requirements?.map((req, i) => (
+                <li key={i} style={{ marginBottom: '6px' }}>{req}</li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Evidence Citations */}
+          <div className="card">
+            <h3 className="card-title">
+              <FileText size={18} color="#2563eb" /> Supporting Evidence Tickets
+            </h3>
+            <p className="card-desc">Source tickets inspected by the ADK Agent to validate these procedural steps.</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {spec.evidence_ticket_ids?.map((tid, i) => (
+                <span key={i} className="badge badge-gray" style={{ fontSize: '0.8rem' }}>
+                  {tid}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
