@@ -299,6 +299,77 @@ class TicketRepository:
             dataset_name=dataset_name
         )
 
+    def ingest_ticket_records(self, ticket_dicts: List[Dict[str, Any]], dataset_name: str = "Connector Sync") -> TicketIngestionResult:
+        """
+        Ingests a list of normalized and sanitized ticket dictionaries directly into the repository.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        now_iso = datetime.utcnow().isoformat()
+        
+        valid_records = 0
+        preview = []
+        rows_to_insert = []
+        
+        for t in ticket_dicts:
+            t_id = str(t.get("ticket_id", "")).strip()
+            title = str(t.get("title", "")).strip()
+            if not t_id or not title:
+                continue
+                
+            desc = str(t.get("description", ""))
+            cat = str(t.get("category", "IT Support"))
+            pri = str(t.get("priority", "Medium"))
+            created = str(t.get("created_at", now_iso))
+            resolved = str(t.get("resolved_at")) if t.get("resolved_at") else None
+            assignee = str(t.get("assignee", "Unassigned"))
+            res_notes = str(t.get("resolution_notes", ""))
+            status = str(t.get("status", "Closed"))
+            active_handling_mins = float(t.get("estimated_active_handling_minutes", 20.0))
+            
+            rows_to_insert.append((
+                t_id, title, desc, cat, pri, created, resolved, assignee, res_notes, status,
+                None, None, now_iso,
+                title.lower(), desc.lower(), res_notes.lower(),
+                f"{title} | {desc} | {res_notes}",
+                active_handling_mins
+            ))
+            
+            if len(preview) < 5:
+                preview.append({
+                    "ticket_id": t_id,
+                    "title": title,
+                    "category": cat,
+                    "priority": pri,
+                    "created_at": created,
+                    "assignee": assignee
+                })
+            valid_records += 1
+
+        if rows_to_insert:
+            cur.executemany("""
+                INSERT OR REPLACE INTO raw_tickets 
+                (ticket_id, title, description, category, priority, created_at, resolved_at, assignee, resolution_notes, status, workflow_ground_truth, handling_minutes_ground_truth, ingested_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12]) for r in rows_to_insert])
+            
+            cur.executemany("""
+                INSERT OR REPLACE INTO normalized_tickets
+                (ticket_id, normalized_title, normalized_description, normalized_resolution_notes, combined_text, category, priority, created_at, resolved_at, assignee, estimated_active_handling_minutes, status, eval_ground_truth_workflow, eval_ground_truth_minutes, normalized_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [(r[0], r[13], r[14], r[15], r[16], r[3], r[4], r[5], r[6], r[7], r[17], r[9], r[10], r[11], now_iso) for r in rows_to_insert])
+
+        conn.commit()
+        conn.close()
+        
+        return TicketIngestionResult(
+            total_records=len(ticket_dicts),
+            valid_records=valid_records,
+            invalid_records=len(ticket_dicts) - valid_records,
+            preview=preview,
+            dataset_name=dataset_name
+        )
+
     def get_tickets(self, limit: int = 100, offset: int = 0, category: Optional[str] = None, workflow_id: Optional[str] = None, search: Optional[str] = None) -> Tuple[List[Dict[str, Any]], int]:
         """Queries normalized tickets with pagination and filtering."""
         conn = sqlite3.connect(self.db_path)

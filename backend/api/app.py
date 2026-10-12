@@ -32,6 +32,9 @@ from backend.services.quantification_service import QuantificationService
 from backend.agent.adk_orchestrator import ADKAutomationAgent
 from backend.evaluation.evaluator import EvaluationFramework
 from backend.data.synthetic_generator import generate_synthetic_dataset, save_dataset_to_csv
+from backend.models.connector import ConnectorConfig, DLPConfig, SyncSummary
+from backend.connectors.manager import ConnectorManager
+from backend.connectors.dlp_service import DLPService
 
 
 app = FastAPI(
@@ -56,6 +59,7 @@ discovery_service = WorkflowDiscoveryService()
 quant_service = QuantificationService()
 agent = ADKAutomationAgent()
 evaluator = EvaluationFramework()
+connector_manager = ConnectorManager(repo=repo)
 
 # Global run state
 analysis_jobs: Dict[str, Dict[str, Any]] = {}
@@ -478,6 +482,73 @@ def export_automation_spec(draft_id: str, format: str = Query("markdown", patter
         return PlainTextResponse(content=md, media_type="text/markdown")
     else:
         return JSONResponse(content=spec.dict())
+
+
+# ==============================================================================
+# Enterprise ITSM Connector & DLP API Endpoints
+# ==============================================================================
+
+class DLPPreviewRequest(BaseModel):
+    sample_text: str
+    mask_pii: bool = True
+    mask_secrets: bool = True
+    mask_network: bool = True
+    mask_financial: bool = True
+
+
+class ConnectorSyncRequest(BaseModel):
+    max_records: int = Field(default=100, ge=1, le=1000)
+
+
+@app.get("/api/connectors")
+def list_connectors():
+    """Lists configured enterprise ITSM connectors (Jira, ServiceNow)."""
+    return connector_manager.list_connectors()
+
+
+@app.post("/api/connectors")
+def upsert_connector(config: ConnectorConfig):
+    """Creates or updates an enterprise ITSM connector configuration."""
+    return connector_manager.upsert_connector(config)
+
+
+@app.post("/api/connectors/{connector_id}/test")
+def test_connector(connector_id: str):
+    """Validates connectivity and authentication against the provider instance."""
+    try:
+        return connector_manager.test_connection(connector_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/connectors/{connector_id}/sync")
+def sync_connector(connector_id: str, req: ConnectorSyncRequest = ConnectorSyncRequest()):
+    """Triggers live ingestion, dynamic field mapping, and DLP sanitization."""
+    try:
+        summary = connector_manager.sync_connector(connector_id, max_records=req.max_records)
+        return summary
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/connectors/dlp/preview")
+def preview_dlp(req: DLPPreviewRequest):
+    """Interactive preview for Google Cloud DLP & Privacy Sanitization rules."""
+    dlp_cfg = DLPConfig(
+        enabled=True,
+        mask_pii=req.mask_pii,
+        mask_secrets=req.mask_secrets,
+        mask_network=req.mask_network,
+        mask_financial=req.mask_financial
+    )
+    dlp = DLPService(dlp_cfg)
+    sanitized_text, redactions = dlp.sanitize_text(req.sample_text)
+    return {
+        "original_text": req.sample_text,
+        "sanitized_text": sanitized_text,
+        "redactions": redactions,
+        "total_redactions": sum(r["count"] for r in redactions)
+    }
 
 
 # Serve frontend static assets if built

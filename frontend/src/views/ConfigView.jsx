@@ -9,7 +9,12 @@ import {
   CheckCircle, 
   RefreshCw,
   Sparkles,
-  Server
+  Server,
+  ShieldCheck,
+  Lock,
+  Link2,
+  Check,
+  Radio
 } from 'lucide-react';
 
 export default function ConfigView({ onRunAnalysis, isRunningAnalysis }) {
@@ -213,6 +218,9 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis }) {
         </div>
       )}
 
+      {/* Enterprise ITSM Connectors & Cloud DLP Section */}
+      <EnterpriseConnectorsSection />
+
       {/* Analysis Parameters & Re-Run Control */}
       <div className="card">
         <h3 className="card-title">
@@ -268,3 +276,279 @@ export default function ConfigView({ onRunAnalysis, isRunningAnalysis }) {
     </div>
   );
 }
+
+
+function EnterpriseConnectorsSection() {
+  const [connectors, setConnectors] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [actionStatus, setActionStatus] = useState({});
+  const [syncingId, setSyncingId] = useState(null);
+  const [testingId, setTestingId] = useState(null);
+
+  // DLP state
+  const [dlpSample, setDlpSample] = useState(
+    "Root password set to Pwd!Secure987 on host 10.240.0.14 while testing deploy with token ghp_99887766554433221100aabbccddeeff0011 by admin john.doe@enterprise.corp."
+  );
+  const [dlpResult, setDlpResult] = useState(null);
+  const [dlpLoading, setDlpLoading] = useState(false);
+
+  useEffect(() => {
+    fetchConnectors();
+  }, []);
+
+  const fetchConnectors = async () => {
+    try {
+      const res = await fetch('/api/connectors');
+      const data = await res.json();
+      setConnectors(data || []);
+    } catch (err) {
+      console.error('Failed to load connectors:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestConnection = async (connectorId) => {
+    setTestingId(connectorId);
+    setActionStatus(prev => ({ ...prev, [connectorId]: { type: 'info', message: 'Testing connectivity...' } }));
+    try {
+      const res = await fetch(`/api/connectors/${connectorId}/test`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setActionStatus(prev => ({ ...prev, [connectorId]: { type: 'success', message: data.message } }));
+      } else {
+        setActionStatus(prev => ({ ...prev, [connectorId]: { type: 'error', message: data.detail || 'Connection test failed.' } }));
+      }
+    } catch (err) {
+      setActionStatus(prev => ({ ...prev, [connectorId]: { type: 'error', message: 'Network error communicating with connector.' } }));
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const handleSyncTickets = async (connectorId) => {
+    setSyncingId(connectorId);
+    setActionStatus(prev => ({ ...prev, [connectorId]: { type: 'info', message: 'Syncing and sanitizing tickets...' } }));
+    try {
+      const res = await fetch(`/api/connectors/${connectorId}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_records: 50 })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'SUCCESS') {
+        setActionStatus(prev => ({
+          ...prev,
+          [connectorId]: { 
+            type: 'success', 
+            message: `Successfully ingested ${data.tickets_ingested} tickets (sanitized with Cloud DLP in ${data.duration_seconds}s).` 
+          }
+        }));
+        fetchConnectors();
+      } else {
+        setActionStatus(prev => ({ ...prev, [connectorId]: { type: 'error', message: data.errors?.[0] || 'Sync failed.' } }));
+      }
+    } catch (err) {
+      setActionStatus(prev => ({ ...prev, [connectorId]: { type: 'error', message: 'Sync request failed.' } }));
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
+  const handleRunDlpPreview = async () => {
+    setDlpLoading(true);
+    try {
+      const res = await fetch('/api/connectors/dlp/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sample_text: dlpSample,
+          mask_pii: true,
+          mask_secrets: true,
+          mask_network: true,
+          mask_financial: true
+        })
+      });
+      const data = await res.json();
+      setDlpResult(data);
+    } catch (err) {
+      console.error('DLP preview error:', err);
+    } finally {
+      setDlpLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Enterprise Connectors Card */}
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 className="card-title">
+              <Link2 size={18} color="#0284c7" /> Enterprise ITSM Connectors (Jira &amp; ServiceNow)
+            </h3>
+            <p className="card-desc">
+              Connect directly to Jira Cloud, Jira Data Center, and ServiceNow ITSM instances with OAuth 2.0, API tokens, and automatic schema normalization.
+            </p>
+          </div>
+          <span className="badge badge-blue">Enterprise Integration Layer</span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginTop: '16px' }}>
+          {connectors.map(c => {
+            const status = actionStatus[c.connector_id];
+            const isJira = c.connector_type === 'JIRA';
+            return (
+              <div 
+                key={c.connector_id} 
+                style={{ 
+                  background: '#f8fafc', 
+                  border: '1px solid #e2e8f0', 
+                  borderRadius: '10px', 
+                  padding: '20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', color: '#0f172a' }}>
+                        {c.name}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>
+                        <code>{c.base_url}</code>
+                      </div>
+                    </div>
+                    <span className={`badge ${isJira ? 'badge-blue' : 'badge-purple'}`}>
+                      {c.connector_type}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.8rem', color: '#475569', marginBottom: '14px' }}>
+                    <div><strong>Auth:</strong> {c.auth_type}</div>
+                    <div><strong>Tickets Synced:</strong> {c.total_tickets_synced?.toLocaleString() || 0}</div>
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <strong>Filter Query:</strong> <code style={{ fontSize: '0.75rem' }}>{c.query_filter?.substring(0, 45)}...</code>
+                    </div>
+                  </div>
+
+                  {status && (
+                    <div 
+                      style={{ 
+                        fontSize: '0.8rem', 
+                        padding: '8px 12px', 
+                        borderRadius: '6px', 
+                        marginBottom: '12px',
+                        background: status.type === 'success' ? '#ecfdf5' : status.type === 'error' ? '#fef2f2' : '#f0f9ff',
+                        color: status.type === 'success' ? '#065f46' : status.type === 'error' ? '#991b1b' : '#0369a1',
+                        border: `1px solid ${status.type === 'success' ? '#a7f3d0' : status.type === 'error' ? '#fecaca' : '#bae6fd'}`
+                      }}
+                    >
+                      {status.message}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ flex: 1, fontSize: '0.8rem', padding: '8px' }}
+                    disabled={testingId === c.connector_id || syncingId === c.connector_id}
+                    onClick={() => handleTestConnection(c.connector_id)}
+                  >
+                    {testingId === c.connector_id ? 'Testing...' : 'Test Connection'}
+                  </button>
+                  <button 
+                    className="btn btn-primary" 
+                    style={{ flex: 1, fontSize: '0.8rem', padding: '8px' }}
+                    disabled={testingId === c.connector_id || syncingId === c.connector_id}
+                    onClick={() => handleSyncTickets(c.connector_id)}
+                  >
+                    {syncingId === c.connector_id ? 'Syncing...' : 'Sync Tickets'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Google Cloud Sensitive Data Protection (DLP) Privacy Gate */}
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 className="card-title">
+              <ShieldCheck size={18} color="#059669" /> Data Hygiene &amp; Privacy Gate (Google Cloud DLP)
+            </h3>
+            <p className="card-desc">
+              Guarantees zero leakage into LLM prompts or vector embeddings. Automatically redacts employee PII, credentials, API tokens, passwords, and private internal IP addresses before mining.
+            </p>
+          </div>
+          <span className="badge badge-green">Zero-Leakage Privacy Policy</span>
+        </div>
+
+        <div style={{ marginTop: '16px' }}>
+          <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>
+            Test Raw Ticket Text (Type or test with secrets, IPs, and PII):
+          </label>
+          <textarea
+            value={dlpSample}
+            onChange={(e) => setDlpSample(e.target.value)}
+            rows={3}
+            style={{
+              width: '100%',
+              marginTop: '6px',
+              padding: '10px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              fontFamily: 'monospace',
+              fontSize: '0.85rem'
+            }}
+          />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+            <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem', color: '#64748b' }}>
+              <span>✅ Passwords &amp; API Keys</span>
+              <span>✅ Private Hostnames &amp; IPs</span>
+              <span>✅ Employee Emails &amp; PII</span>
+            </div>
+            <button 
+              className="btn btn-secondary" 
+              onClick={handleRunDlpPreview}
+              disabled={dlpLoading}
+              style={{ fontSize: '0.82rem' }}
+            >
+              {dlpLoading ? 'Sanitizing...' : 'Preview DLP Redaction'}
+            </button>
+          </div>
+
+          {dlpResult && (
+            <div style={{ marginTop: '16px', background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>
+                  Sanitized Text (Safe for Vector Embeddings &amp; Gemini Prompts):
+                </span>
+                <span className="badge badge-purple">
+                  {dlpResult.total_redactions} redactions applied
+                </span>
+              </div>
+              <div style={{ background: '#ffffff', padding: '12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontFamily: 'monospace', fontSize: '0.85rem', color: '#047857' }}>
+                {dlpResult.sanitized_text}
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+                {dlpResult.redactions.map((r, i) => (
+                  <span key={i} className="badge badge-blue" style={{ fontSize: '0.75rem' }}>
+                    {r.type}: {r.count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
